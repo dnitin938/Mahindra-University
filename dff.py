@@ -2,13 +2,13 @@ import torch
 import torch.nn as nn
 from torchvision import transforms
 from PIL import Image
-from tkinter import Tk, filedialog
+import streamlit as st
 
 # ----------- CONFIG -----------
 MODEL_PATH = "chromium_cnn_augmented.pth"
 IMAGE_SIZE = (128, 128)
 NUM_CLASSES = 9
-CLASS_NAMES = [str(i) for i in range(1, NUM_CLASSES + 1)]  # ['1', ..., '9']
+CLASS_NAMES = [str(i) for i in range(1, NUM_CLASSES + 1)]
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ----------- MODEL -----------
@@ -33,36 +33,38 @@ class ChromiumCNN(nn.Module):
         return self.classifier(x)
 
 # ----------- LOAD MODEL -----------
-model = ChromiumCNN(num_classes=NUM_CLASSES).to(device)
-model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-model.eval()
+@st.cache_resource
+def load_model():
+    model = ChromiumCNN(num_classes=NUM_CLASSES).to(device)
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.eval()
+    return model
 
-# ----------- SELECT IMAGE -----------
-Tk().withdraw()  # Hide the root window
-file_path = filedialog.askopenfilename(
-    title="Select Image",
-    filetypes=[("Image files", "*.jpg *.jpeg *.png")]
-)
+model = load_model()
 
-if not file_path:
-    print("❌ No image selected.")
-    exit()
+# ----------- STREAMLIT UI -----------
+st.title("🔬 Chromium Classification")
+st.write("Upload an image to predict the chromium class.")
 
-# ----------- PREPROCESS AND PREDICT -----------
-transform = transforms.Compose([
-    transforms.Resize(IMAGE_SIZE),
-    transforms.ToTensor(),
-    transforms.Normalize([0.5]*3, [0.5]*3)
-])
+uploaded_file = st.file_uploader("Choose an image", type=["jpg", "jpeg", "png"])
 
-image = Image.open(file_path).convert("RGB")
-input_tensor = transform(image).unsqueeze(0).to(device)
+if uploaded_file is not None:
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
-with torch.no_grad():
-    outputs = model(input_tensor)
-    _, predicted = outputs.max(1)
-    predicted_class = CLASS_NAMES[predicted.item()]
+    # ----------- PREPROCESS -----------
+    transform = transforms.Compose([
+        transforms.Resize(IMAGE_SIZE),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5]*3, [0.5]*3)
+    ])
+    input_tensor = transform(image).unsqueeze(0).to(device)
 
-# ----------- OUTPUT -----------
-print(f"\n✅ Selected file: {file_path}")
-print(f"✅ Predicted Chromium Class: {predicted_class}\n")
+    # ----------- PREDICT -----------
+    with torch.no_grad():
+        outputs = model(input_tensor)
+        _, predicted = outputs.max(1)
+        predicted_class = CLASS_NAMES[predicted.item()]
+
+    # ----------- OUTPUT -----------
+    st.success(f"✅ Predicted Chromium Class: **{predicted_class}**")
